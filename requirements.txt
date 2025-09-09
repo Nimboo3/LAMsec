@@ -1,0 +1,22 @@
+# Core model & tokenizer stack
+transformers==4.42.4
+tokenizers==0.19.1
+safetensors>=0.4.1,<0.5.0
+huggingface-hub>=0.23.2,<0.34.0
+
+# Inference backend (CPU)
+torch==2.3.0
+# If install issues: try torch==2.2.2 or let pip pick a later 2.x with wheels.
+
+# Embeddings & sentence transformers
+sentence-transformers==2.7.0
+
+# App / UI
+gradio==4.44.0
+
+# Metrics & utilities
+rapidfuzz==3.9.4
+numpy==1.26.4
+scikit-learn==1.4.2
+pyyaml==6.0.1
+# Optional: accelerate==0.31.0
