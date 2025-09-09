@@ -45,11 +45,11 @@ def run_case(case: Dict, sanitizer, semantic, validator, safe_gen) -> Dict:
         result = env.run_action(a)
         trace.append({"action": a, "result": result})
     final_state = env.summarize_state()
-    gcr_val = gcr(intended_goal, defended_actions, final_state)
-    san_patterns = policy_out["san_patterns"]
-    suspicion = policy_out["suspicion"]
+    gcr_val = gcr(intended_goal, defended_actions)
+    san_patterns = policy_out.get("san_patterns", [])
+    suspicion = policy_out.get("suspicion")
     is_safe, val_viol = validator.validate(defended_actions)
-    success = attack_success(ads_val, svi_val, gcr_val)
+    success = attack_success(ads_val, svi_val, gcr_val, blocked=policy_out["blocked"])
 
     return {
         'id': case['id'],
@@ -67,10 +67,10 @@ def run_case(case: Dict, sanitizer, semantic, validator, safe_gen) -> Dict:
         'baseline_actions': intended_actions,
         'raw_actions': injected_actions,
         'defended_actions': defended_actions,
-        'policy_blocked': policy_out['blocked'],
+    'policy_blocked': policy_out['blocked'],
     'execution_trace': trace,
     'final_state': final_state,
-    'constrained_regen': policy_out.get('constrained', False),
+    'constrained_regen': policy_out.get('constrained_regen', False),
     }
 
 
