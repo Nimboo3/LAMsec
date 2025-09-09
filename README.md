@@ -49,10 +49,17 @@ python gradio_app.py
 
 ## Roadmap (Immediate Enhancements)
 1. Improve ADS: integrate embedding semantic distance (SentenceTransformers) when available.
-2. Add proper intended baseline to Gradio app (collect secondary prompt or choose dataset sample).
+2. (Done) Add proper intended baseline to Gradio app (dual prompt fields).
 3. Persist run logs to `results/` with timestamp.
 4. Add Jupyter / Colab notebooks (`notebooks/demo_colab.ipynb`).
 5. Expand environment safety rules & validator coverage.
+
+### Recent Updates
+* Enhanced action parser (handles concatenated numbering).
+* Added embedding-backed ADS / GCR (with graceful fallback).
+* Dual-run benchmark (intended vs injected) with per-case timing and JSON persistence.
+* Gradio UI: dataset sample selection, defense modes (baseline/regex-only/full), policy block & safe alternative, execution trace.
+* Policy flow with SafeAlternativeGenerator and environment simulation in benchmark + UI.
 
 ## License
 TBD (add an OSS license appropriate for research reproducibility).

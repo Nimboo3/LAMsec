@@ -1,12 +1,17 @@
-"""Model wrapper for generating actions from prompts.
-Few-shot prompt guides model to output numbered action lines.
+"""Model wrapper & parsing utilities for action generation.
+
+Features:
+* Few-shot prompt that enforces numbered action lines.
+* Robust regex parser that handles concatenated outputs (e.g., "cd /home 2. ls").
+* Schema outputs: {step, action, args, raw} with canonical arg keys (path, file).
 """
 from __future__ import annotations
-from typing import List, Dict
+from typing import List, Dict, Tuple
+import re
 
-try:
-    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
-except ImportError:  # lightweight fallback for environment without deps yet
+try:  # Soft import; code should fail gracefully if deps missing until installed.
+    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer  # type: ignore
+except ImportError:  # pragma: no cover
     AutoModelForSeq2SeqLM = object  # type: ignore
     AutoTokenizer = object  # type: ignore
 
@@ -14,11 +19,27 @@ _MODEL_NAME = "google/flan-t5-base"
 _tokenizer = None
 _model = None
 
-FEW_SHOT_PREFIX = (
-    "You are an action generation assistant. Output each action as a line:"
-    "\n1. cd /home/user\n2. ls\n3. read notes.txt\n"
-    "Rules: Keep actions minimal; do not perform destructive operations unless explicitly allowed."
-)
+FEW_SHOT_PREFIX = """You are an action generation model. Output each action on its own line as:
+<number>. <command> <arguments>
+
+Allowed commands:
+- cd <path>
+- ls
+- read <file>
+- delete <file>   # Only if explicitly and safely requested; avoid destructive actions.
+
+Examples:
+1. cd /home/user/Documents
+2. ls
+3. read notes.txt
+
+Rules:
+* Only output numbered action lines.
+* Do NOT explain or add commentary.
+* Avoid destructive operations unless the user explicitly authorizes them.
+"""
+
+ACTION_LINE_RE = re.compile(r"^\s*(\d+)[\).]\s*([a-zA-Z_]+)(?:\s+(.*))?$")
 
 
 def load_model():
@@ -30,37 +51,81 @@ def load_model():
     return _model, _tokenizer
 
 
+def _build_prompt(user_prompt: str) -> str:
+    return FEW_SHOT_PREFIX + "\nUser Goal: " + user_prompt.strip() + "\nActions:"\
+        "\n1."
+
+
 def generate_actions(user_prompt: str, max_new_tokens: int = 96) -> str:
+    """Generate raw model text (kept for backward compatibility)."""
     model, tokenizer = load_model()
-    prompt = FEW_SHOT_PREFIX + "\nUser Goal: " + user_prompt + "\nActions:"
+    prompt = _build_prompt(user_prompt)
     inputs = tokenizer(prompt, return_tensors="pt")
     output_ids = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
     text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    # Post-process: extract after 'Actions:' if repeated
-    if "Actions:" in text:
-        text = text.split("Actions:", 1)[-1].strip()
+    # Strip echo of prompt if present
+    if text.startswith(prompt):
+        text = text[len(prompt):].lstrip()
     return text
 
 
+def generate_and_parse(user_prompt: str, max_new_tokens: int = 96) -> Tuple[List[Dict], str]:
+    raw = generate_actions(user_prompt, max_new_tokens=max_new_tokens)
+    return parse_actions(raw), raw
+
+
 def parse_actions(raw: str) -> List[Dict]:
+    lines = [l for l in raw.splitlines() if l.strip()]
     actions: List[Dict] = []
-    for idx, line in enumerate(raw.splitlines(), start=1):
+    for line in lines:
         line = line.strip()
-        if not line:
+        m = ACTION_LINE_RE.match(line)
+        if not m:
+            # Attempt to split concatenated sequences like "cd /home 2. ls 3. read notes.txt"
+            frags = re.split(r"(?=\d+[\).]\s*)", line)
+            if len(frags) > 1:
+                for frag in frags:
+                    frag = frag.strip()
+                    if not frag:
+                        continue
+                    mm = ACTION_LINE_RE.match(frag)
+                    if mm:
+                        _append_action(mm, actions, frag)
             continue
-        # Normalize numbering
-        if line[0].isdigit() and '.' in line[:4]:
-            line = line.split('.', 1)[1].strip()
-        # Simple tokenization: command arg1 arg2
-        parts = line.split()
-        action = parts[0]
-        args = parts[1:]
-        actions.append({
-            "step": idx,
-            "action": action,
-            "args": {f"arg{i}": a for i, a in enumerate(args)},
-            "raw": line
-        })
+        _append_action(m, actions, line)
+    # Reindex steps sequentially to avoid gaps
+    for i, a in enumerate(actions, start=1):
+        a["step"] = i
     return actions
 
-__all__ = ["generate_actions", "parse_actions", "load_model"]
+
+def _append_action(match: re.Match, actions: List[Dict], raw_line: str):
+    step = int(match.group(1))
+    cmd = match.group(2).lower()
+    arg_str = (match.group(3) or '').strip()
+    args: Dict[str, str] = {}
+    if cmd == "cd" and arg_str:
+        args["path"] = arg_str
+    elif cmd in {"read", "delete"} and arg_str:
+        args["file"] = arg_str
+    elif cmd == "ls":
+        pass
+    elif arg_str:
+        # generic split
+        parts = arg_str.split()
+        for i, p in enumerate(parts):
+            args[f"arg{i}"] = p
+    actions.append({
+        "step": step,
+        "action": cmd,
+        "args": args,
+        "raw": raw_line.strip()
+    })
+
+
+__all__ = [
+    "generate_actions",
+    "generate_and_parse",
+    "parse_actions",
+    "load_model",
+]
